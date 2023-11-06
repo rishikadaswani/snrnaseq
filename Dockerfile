@@ -20,9 +20,7 @@ ENV PATH="${PATH}:/FastQC/"
 
 # install cellranger
 # https://www.10xgenomics.com/support/software/cell-ranger/downloads
-RUN wget -O cellranger-7.2.0.tar.gz 
-"https://cf.10xgenomics.com/releases/cell-exp/cellranger-7.2.0.tar.gz?Expires=1696501677&Key-Pair-Id=APKAI7S6A5RYOXBWRPDA&Signature=Taqy-nHIt22BhhMQwqkl767WGDmkuVpu-Q9wQ4qIenGgHE9Y~UhTtfuKaDyH0NMCYw~oUPJM2Q-2Yk6tZA~Gk~jCM~4J183pOfRUNHW~LePHtgK~aQuzLObi~mHP8N7efBflOrI4dZxZGmbP388x-S6Cy43dCutHQzJV0flI2dmFoqIJZn9uYcyyjWz4wYUvagtDcm0c9pF4GjbyvTdE1s2r4IO5I3unWRO9ZrubzcFa3ygt~5gbRgcp59SmxvASakWeXdics92hgUL-vaQzG7B77nMAi9fNgmpJOSCjFPWeUSXbDcUPINaiDDiF1m0RYNNkLG1jSWukZjzQxxwXDA__" 
-&& \
+RUN wget -O cellranger-7.2.0.tar.gz "https://cf.10xgenomics.com/releases/cell-exp/cellranger-7.2.0.tar.gz?Expires=1699335877&Key-Pair-Id=APKAI7S6A5RYOXBWRPDA&Signature=JOCy08Td4ZsoRZq4sUdNhMYbTPM8j9uatmZnUkZSPyjrcHZ3imAWQkR9wMMPq9yQsN~VpiY3N6e9MqukdBTVCPhaXI1mDBIylHGF7IHB2wF3XOCOWkZlkUt1Ry3MvulfDbAw~EMQaDcoi-ns~Er20PnuqhOVIjqk3UxHs-gdAkLxL5ZD754lqlV0jDsAUN63oXV5FhzOl0U4Pr2o2RKADfW~x4L8DSdRTbPigTSP-qmYXSTHwUh-45tK8Mb6KLUNy5kJM8tPajlyjzPY26p858TYyENA4lcrn6QH7qzu0F0JraDTQqeB9xSI~04FPVv8OxVaVATkdujjB5LFXyGLDw__" && \ 
     tar -zxvf cellranger-7.2.0.tar.gz && \
     cd cellranger-7.2.0
 ENV PATH="${PATH}:/cellranger-7.2.0/"
