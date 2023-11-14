@@ -16,8 +16,12 @@ module load apptainer
 
 DATA=/arc/project/st-singha53-1/datasets/fentanyl/scrnaseq
 
-cd $SLURM_SUBMIT_DIR
-apptainer run -B $DATA:$DATA /arc/project/st-singha53-1/rishikad/snrnaseq/snrnaseq.sif make sockeye_fastqc
+#cd $Slurm_SUBMIT_WORKDIR
+echo $(eval pwd)
+out=$(eval ls)
+echo ${out}
+
+#apptainer run -B $DATA /project/st-singha53-1/rishikad/snrnaseq/snrnaseq.sif make sockeye_fastqc
 
 
 

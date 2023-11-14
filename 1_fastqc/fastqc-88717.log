@@ -1,0 +1,2 @@
+sh fastqc.sh /arc/project/st-singha53-1/datasets/fentanyl/scrnaseq
+
