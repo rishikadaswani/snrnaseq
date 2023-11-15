@@ -1,4 +1,4 @@
-FASTQ_FILES=$(find $1 -name *.fastq)
+FASTQ_FILES=$(find $1 -name *.fastq.gz)
 echo $FASTQ_FILES
 OUTPUT=fastqc_results
 mkdir -p $OUTPUT
