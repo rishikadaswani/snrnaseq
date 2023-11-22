@@ -1,5 +1,6 @@
+RAT=""
 align_count:
-	sh cellranger.sh
+	sh cellranger.sh ${RAT}
 
 aggr:
 	cellranger aggr --id=fentanyl \
