@@ -11,12 +11,14 @@
 #SBATCH --mail-type=ALL                            # Receive email notifications for all job events
 #SBATCH --array=0-3                               # Define the range of array indices
 
+#The above is for each sub-job, 4 sub jobs with these resources 
+
 ##############################################################################################
 
 
 module load apptainer
 
-ALL_RATS=( "R15" "R16" "R3" "R4" )
+ALL_RATS=( "GEX-R15-AS-12162022" "GEX-R16-AS-12162022" "GEX-R3-AS-12162022" "GEX-R4-AS-12162022" )
 RAT="${ALL_RATS[${SLURM_ARRAY_TASK_ID}]}"
 
 DATA=/arc/project/st-singha53-1/datasets/fentanyl/scrnaseq
