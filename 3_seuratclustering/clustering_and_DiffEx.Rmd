@@ -1,0 +1,192 @@
+title: "Clustering_Analysis"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-08-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#Load Libraries 
+library(dplyr)
+library(Seurat)
+library(SeuratObject)
+#library(patchwork)
+library(hdf5r)
+#library(HGNChelper)
+library(ggplot2)
+```
+
+```{r}
+#Load the RNA Dataset
+#counts 
+r3counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R3.h5")
+r4counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R4.h5")
+r15counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R15.h5")
+r16counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R16.h5")
+```
+
+```{r}
+#creating Seurat objects for the RNA data 
+r3_RNA <- CreateSeuratObject(counts = r3counts$`Gene Expression`, assay = "RNA")
+r4_RNA <- CreateSeuratObject(counts = r4counts$`Gene Expression`, assay = "RNA")
+r15_RNA <- CreateSeuratObject(counts = r15counts$`Gene Expression`, assay = "RNA")
+r16_RNA <- CreateSeuratObject(counts = r16counts$`Gene Expression`, assay = "RNA")
+Idents(r3_RNA) <- "r3"
+Idents(r4_RNA) <- "r4"
+Idents(r15_RNA) <- "r15"
+Idents(r16_RNA) <- "r16"
+```
+
+```{r}
+#Merging the Seurat objects 
+
+RNA_merged_data <- merge(r3_RNA, y = c(r4_RNA, r15_RNA, r16_RNA), add.cell.ids = c("r3", "r4", "r15", 
+"r16"), project = "RNA")
+RNA_merged_data
+table(Idents(RNA_merged_data))#number of nuclei in each sample before filtering 
+```
+
+
+
+```{r}
+#QC and selecting cells for further analysis 
+RNA_merged_data[["percent.mt"]] <- PercentageFeatureSet(RNA_merged_data, pattern = "^Mt-")
+#Visualize QC metrics in Violin plot 
+VlnPlot(RNA_merged_data, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+RNA_merged_data <- subset(RNA_merged_data, subset = nFeature_RNA > 100 & nFeature_RNA < 7500 & percent.mt < 
+10)
+table(Idents(RNA_merged_data))#number of nuclei in each sample after filtering 
+```
+
+
+```{r}
+#Normalizing the Data 
+RNA_merged_data <- NormalizeData(RNA_merged_data, normalization.method = "LogNormalize", scale.factor = 
+10000)
+```
+
+```{r}
+#Identification of highly variable features
+RNA_merged_data <- FindVariableFeatures(RNA_merged_data, selection.method = "vst", nfeatures = 2000)
+top10 <- head(VariableFeatures(RNA_merged_data), 10)
+plot1 <- VariableFeaturePlot(RNA_merged_data)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+
+```
+
+
+```{r}
+#Scaling the Data
+RNA_merged_data <- ScaleData(RNA_merged_data)
+#Variance stablization and Transformation
+#DefaultAssay(RNA_merged_data) <- "RNA"
+RNA_merged_data <- SCTransform(RNA_merged_data)
+```
+
+```{r}
+#Performing PCA on the scaled dataset 
+RNA_merged_data <- RunPCA(RNA_merged_data)
+
+#RNA_merged_data <- RunUMAP(RNA_merged_data, dims = 1:50)
+#DimPlot(RNA_merged_data, reduction = "umap") + ggtitle("Sample Clusters")
+# Examine and visualize PCA results a few different ways
+#print(RNA_merged_data[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(RNA_merged_data, dims = 1:2, reduction = "pca")
+DimPlot(RNA_merged_data, reduction = "pca")
+ElbowPlot(RNA_merged_data)
+```
+
+```{r}
+#Cluster the Cells 
+RNA_merged_data <- FindNeighbors(RNA_merged_data, dims = 1:50)
+RNA_merged_data <- FindClusters(RNA_merged_data, resolution = 0.1)
+
+```
+
+```{r}
+#Run non-linear dimensional reduction (UMAP/tSNE)
+#(reticulate::py_install(packages = 'umap-learn')
+RNA_merged_data <- RunUMAP(RNA_merged_data, dims = 1:50)
+DimPlot(RNA_merged_data, reduction = "umap", label = FALSE) + ggtitle("Cell Type Clusters")
+```
+
+
+```{r}
+#Manual Annotation 
+#Now let's extract the top marker genes, and see which ones correspond with each cluster. This can be done using the FindAllMarkers function within Seurat.
+
+cluster_markers <- Seurat::FindAllMarkers(RNA_merged_data)
+# fgsea
+
+ 
+mouse_brain <- read.csv("~/Desktop/snrnaseq/3_seuratclustering/biorxiv_mouse_brain.csv")
+mbrain_genesets <- sapply(strsplit(mouse_brain$Optimally.Sized.Gene.List, "\\||="), function(i){
+  i[-grep("ENS", i)]
+})
+names(mbrain_genesets) <- mouse_brain$Cell.Type.Name
+mbrain_genesets <- mbrain_genesets[sapply(mbrain_genesets, length) != 0]
+
+ 
+
+# if (!require("BiocManager", quietly = TRUE))
+     install.packages("BiocManager")
+ BiocManager::install("fgsea", force = TRUE)
+library(fgsea)
+
+ 
+
+fc <- cluster_markers$avg_log2FC
+names(fc) <- rownames(cluster_markers)
+fc_cl <- split(fc, cluster_markers$cluster)
+
+ 
+
+cluster_annotations <- lapply(fc_cl, function(i){
+  res <- fgsea(mbrain_genesets, i)
+  res <- res[order(res$pval),]
+  res$pathway[1]
+})
+```
+ 
+```{r}
+#new.cluster.ids <- as.character(unlist(cluster_annotations))
+new.cluster.ids <- c("GABAergic neurons", "Vip", "Pvalb", "Oligo", "Microglia", "Astrocytes", "Glial", 
+"non-neuronal", "Fibroblasts","Macrophages", "Ependymal", "DA neurons", "Endo")
+names(new.cluster.ids) <- levels(RNA_merged_data)
+RNA_merged_data <- RenameIdents(RNA_merged_data, new.cluster.ids)
+Dim_plot <- DimPlot(RNA_merged_data, reduction = "umap", label = TRUE, pt.size = 0.5) + ggtitle("Clusters by cell type", aes(color = 1)) + theme_bw() + theme(axis.text.x = element_text(size = 14, colour = "black"), 
+axis.text.y = element_text(size = 15, colour = "black"), plot.title = element_text(size = 14, face = 
+"bold"))
+
+Dim_plot <- Dim_plot + theme(text = element_text(size = 14), legend.text = element_text(size = 10, face = 
+"bold"))
+LabelClusters(Dim_plot, id = "ident", fontface = "bold")
+print(Dim_plot)
+
+
+```
+
+#Differential Expression Analysis 
+
+```{r}
+#load libraries 
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma", force = TRUE)
+library(limma)
+```
+
+```{r}
+eset <- RNA_merged_data@assays$RNA@counts
+ids <- unlist(sapply(strsplit(colnames(eset), "_"), function(i) i[[1]]))
+sex <- demo[ids, "sex"]
+```
+
