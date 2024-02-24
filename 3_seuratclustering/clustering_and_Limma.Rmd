@@ -1,0 +1,355 @@
+title: "Clustering_Analysis"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-08-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Seurat Clustering Pipeline 
+
+```{r}
+#Load Libraries 
+library(dplyr)
+library(Seurat)
+library(SeuratObject)
+library(hdf5r)
+library(ggplot2)
+library(tidyr)
+```
+
+```{r}
+#Load the RNA Dataset
+#counts 
+r3counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R3.h5")
+r4counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R4.h5")
+r15counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R15.h5")
+r16counts <- Read10X_h5("~/Desktop/Data/GEX/filtered_feature_bc_matrix_R16.h5")
+```
+
+```{r}
+#creating Seurat objects for the RNA data 
+r3_RNA <- CreateSeuratObject(counts = r3counts$`Gene Expression`, assay = "RNA")
+r4_RNA <- CreateSeuratObject(counts = r4counts$`Gene Expression`, assay = "RNA")
+r15_RNA <- CreateSeuratObject(counts = r15counts$`Gene Expression`, assay = "RNA")
+r16_RNA <- CreateSeuratObject(counts = r16counts$`Gene Expression`, assay = "RNA")
+Idents(r3_RNA) <- "r3"
+Idents(r4_RNA) <- "r4"
+Idents(r15_RNA) <- "r15"
+Idents(r16_RNA) <- "r16"
+```
+
+```{r}
+#Merging the Seurat objects
+RNA_merged_data <- merge(r3_RNA, y = c(r4_RNA, r15_RNA, r16_RNA), add.cell.ids = c("r3", "r4", "r15", 
+"r16"), project = "RNA")
+RNA_merged_data
+#number of nuclei in each sample before filtering 
+table(Idents(RNA_merged_data))
+```
+
+```{r}
+#Remove all mitochondrial genes 
+keep_genes <- rownames(RNA_merged_data)[-grep("^Mt-", rownames(RNA_merged_data))]
+RNA_merged_data <- subset(RNA_merged_data, features = keep_genes)
+```
+
+```{r}
+#QC and selecting cells for further analysis 
+#RNA_merged_data[["percent.mt"]] <- PercentageFeatureSet(RNA_merged_data, pattern = "^Mt-")
+#Visualize QC metrics in Violin plot 
+VlnPlot(RNA_merged_data, features = c("nFeature_RNA", "nCount_RNA"), ncol = 2)
+RNA_merged_data <- subset(RNA_merged_data, subset = nFeature_RNA > 100 & nFeature_RNA < 7500)
+#number of nuclei in each sample after filtering
+table(Idents(RNA_merged_data)) 
+```
+
+```{r}
+#Normalizing the Data 
+RNA_merged_data <- NormalizeData(RNA_merged_data, normalization.method = "LogNormalize", scale.factor = 
+10000)
+```
+
+```{r}
+#Identification of highly variable features
+RNA_merged_data <- FindVariableFeatures(RNA_merged_data, selection.method = "vst", nfeatures = 2000)
+top10 <- head(VariableFeatures(RNA_merged_data), 10)
+plot1 <- VariableFeaturePlot(RNA_merged_data)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+
+```
+
+```{r}
+#Variance stablization and Transformation
+RNA_merged_data <- SCTransform(RNA_merged_data)
+```
+
+```{r}
+#Performing PCA on the scaled dataset 
+RNA_merged_data <- RunPCA(RNA_merged_data)
+
+VizDimLoadings(RNA_merged_data, dims = 1:2, reduction = "pca")
+DimPlot(RNA_merged_data, reduction = "pca")
+ElbowPlot(RNA_merged_data)
+```
+
+```{r}
+#Cluster the Cells 
+RNA_merged_data <- FindNeighbors(RNA_merged_data, dims = 1:11)
+RNA_merged_data <- FindClusters(RNA_merged_data, resolution = 0.1)
+
+```
+
+```{r}
+#Run non-linear dimensional reduction (UMAP/tSNE)
+#(reticulate::py_install(packages = 'umap-learn')
+set.seed(10)
+RNA_merged_data <- RunUMAP(RNA_merged_data, dims = 1:11)
+DimPlot(RNA_merged_data, reduction = "umap", label = FALSE) + ggtitle("Cell Type Clusters")
+```
+
+```{r}
+#Manual Annotation 
+
+#Now let's extract the top marker genes, and see which ones correspond with each cluster. This can be done using the FindAllMarkers function within Seurat.
+
+RNA_merged_data <- PrepSCTFindMarkers(object = RNA_merged_data, assay = "SCT")
+cluster_markers <- FindAllMarkers(RNA_merged_data)
+```
+
+# Fast Gene Set Enrichement Analysis 
+
+```{r}
+
+#Fast gene set enrichement analysis (fgsea)
+
+mouse_brain <- read.csv("~/Desktop/snrnaseq/3_seuratclustering/biorxiv_mouse_brain.csv")
+mbrain_genesets <- sapply(strsplit(mouse_brain$Optimally.Sized.Gene.List, "\\||="), function(i){
+  i[-grep("ENS", i)]
+})
+names(mbrain_genesets) <- mouse_brain$Cell.Type.Name
+mbrain_genesets <- mbrain_genesets[sapply(mbrain_genesets, length) != 0]
+
+ 
+# if (!require("BiocManager", quietly = TRUE))
+     install.packages("BiocManager")
+ BiocManager::install("fgsea", force = TRUE)
+library(fgsea)
+
+ 
+
+fc <- cluster_markers$avg_log2FC
+names(fc) <- rownames(cluster_markers)
+fc_cl <- split(fc, cluster_markers$cluster)
+
+ 
+
+cluster_annotations <- lapply(fc_cl, function(i){
+  res <- fgsea(mbrain_genesets, i)
+  res <- res[order(res$pval),]
+  res$pathway[1]
+})
+```
+ 
+```{r}
+
+#Labeling clusters with cell types 
+
+new.cluster.ids <- c("GABAergic neurons", "Vip", "Pvalb", "Oligo", "Microglia", "Astrocytes", "Glial", 
+"non-neuronal", "Fibroblasts","Macrophages", "Ependymal", "DA neurons", "Endo")
+names(new.cluster.ids) <- levels(RNA_merged_data)
+RNA_merged_data <- RenameIdents(RNA_merged_data, new.cluster.ids)
+Dim_plot <- DimPlot(RNA_merged_data, reduction = "umap", label = F, pt.size = 0.5) + ggtitle("Clusters by cell type", aes(color = 1)) + theme_bw() + theme(axis.text.x = element_text(size = 14, colour = "black"), 
+axis.text.y = element_text(size = 15, colour = "black"), plot.title = element_text(size = 14, face = 
+"bold"))
+
+LabelClusters(Dim_plot, id = "ident", fontface = "bold") +
+  theme(text = element_text(size = 14, face="bold"), 
+                             legend.text = element_text(size = 10, face = 
+"bold"))
+```
+
+# Differential Expression Analysis 
+
+```{r}
+#load libraries 
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma", force = TRUE)
+library(limma)
+```
+
+
+```{r}
+demo <- data.frame(ids = c("r3", "r4", "r15", "r16"),
+                       drug = c("Saline", "Fentanyl", "Fentanyl", "Saline"), 
+                       sex = c("Male", "Male", "Female", "Female"))
+demo_10x <- RNA_merged_data@meta.data %>% tibble::rownames_to_column("ids") %>% mutate(ids = gsub("_.*", "", ids))
+demo_10x <- demo_10x %>% left_join(demo, by = "ids")
+```
+
+```{r}
+eset <- RNA_merged_data@assays$SCT@counts
+#eset %>% as.data.frame() %>% rename_with(~gsub("_.*", "", .)) %>% head
+ids <- unlist(sapply(strsplit(colnames(eset), "_"), function(i) i[[1]]))
+sex <- factor(demo_10x[, "sex"], c("Male", "Female"))
+drug <- factor(demo_10x[, "drug"], c("Saline", "Fentanyl"))
+cell_labels <- as.character(Idents(RNA_merged_data))
+```
+
+```{r}
+#cell_lab <- names(table(cell_labels))
+#cell <- cell_lab[1]
+top <- lapply(names(table(cell_labels)), function(cell){
+  keep <- cell_labels %in% cell
+  counts <- eset[, keep]
+  dat <- data.frame(sex = sex[keep],
+                    drug = drug[keep],
+                    subj = gsub("_.*", "", colnames(counts)))
+  design <- model.matrix(~sex*drug, data = dat)
+  v <- voom(counts, design, plot = TRUE)
+  fit <- lmFit(v, design)
+  fit <- eBayes(fit)
+  top_FvsM <- topTable(fit, coef = "sexFemale", adjust.method = "BH", number = nrow(fit))
+  top_FvsM$comparison <- "Female_vs_Male"
+  top_FvsM$gene <- rownames(top_FvsM)
+  top_SvsF <- topTable(fit, coef = "drugFentanyl", adjust.method = "BH", number = nrow(fit))
+  top_SvsF$comparison <- "Saline_vs_Fentanyl"
+  top_SvsF$gene <- rownames(top_SvsF)
+  top_int <- topTable(fit, coef = "sexFemale:drugFentanyl", adjust.method = "BH", number = nrow(fit))
+  top_int$comparison <- "drug x sex interaction"
+  top_int$gene <- rownames(top_int)
+  top <- rbind(top_FvsM, top_SvsF, top_int)
+  top$cell <- cell
+top }) %>% 
+  do.call(rbind, .)
+top %>% filter(adj.P.Val < 0.001) %>% 
+  group_by(cell, comparison) %>% 
+  summarise(n = n()) %>% 
+  ungroup %>% 
+  complete(cell, comparison) %>% 
+  mutate(comparison = factor(comparison, levels = c("drug x sex interaction", "Female_vs_Male", "Saline_vs_Fentanyl"))) %>% 
+  ggplot(aes(x = reorder(cell, -n), y = n, fill = comparison)) + 
+  geom_bar(stat = "identity", position = "dodge") + scale_y_log10() + 
+  ylab("Number of differentially expressed genes (FDR<1%)") +   
+  xlab("Cell-type") +   
+  theme_classic() +   
+  theme(legend.position = c(0.9,0.9)) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+top %>% 
+  group_by(cell, comparison) %>% 
+  arrange(adj.P.Val) %>% 
+  mutate(n = 1:n()) %>% 
+  ggplot(aes(x = n, y = adj.P.Val, col= cell)) +
+  geom_line() +
+  facet_wrap(~comparison) 
+  
+```
+
+```{r}
+#Volcano Plots 
+
+#load library 
+if (!requireNamespace('BiocManager', quietly = TRUE))
+    install.packages('BiocManager')
+cell_labels
+  BiocManager::install('EnhancedVolcano')
+```
+
+```{r}
+# add a column of NAs 
+top$diffexpressed <- "NO"
+# if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
+top$diffexpressed[top$logFC > 0.6 & top$adj.P.Val < 0.001] <- "UP"
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+top$diffexpressed[top$logFC < -0.6 & top$adj.P.Val < 0.001] <- "DOWN"
+
+top$delabel <- NA
+top$delabel[top$diffexpressed != "NO"] <- top$gene[top$diffexpressed != "NO"]
+
+```
+
+```{r}
+library(gridExtra)
+GABAergic <- top[top$cell == "GABAergic neurons", ]
+GABAergic <- GABAergic[GABAergic$comparison == "drug x sex interaction", ]
+Glial <- top[top$cell == "Glial", ]
+Glial <- Glial[Glial$comparison == "drug x sex interaction", ]
+Vip <- top[top$cell == "Vip", ]
+Pvalb <- top[top$cell == "Pvalb", ]
+
+GABAergic <- GABAergic[GABAergic$diffexpressed == "UP", ]
+
+plot1 <- EnhancedVolcano(GABAergic, 
+                lab = rownames(GABAergic),
+                x = 'logFC',
+                y = 'P.Value', 
+                title = "GABAergic Neurons")
+
+plot1 + theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+plot2 <- EnhancedVolcano(Glial, 
+                lab = rownames(Glial),
+                x = 'logFC',
+                y = 'P.Value',
+                title = "Glial")
+Pvalb <- Pvalb[Pvalb$diffexpressed == "DOWN", ]
+plot3 <- EnhancedVolcano(Vip, 
+                lab = rownames(Vip),
+                x = 'logFC',
+                y = 'P.Value',
+                title = "Vip")
+plot3 + theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+plot4 <- EnhancedVolcano(Pvalb, 
+                lab = rownames(Pvalb),
+                x = 'logFC',
+                y = 'P.Value',
+                title = "Paravalbumin")
+plot4 + theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2)
+```
+
+# Save object as .rds 
+```{r}
+saveRDS(RNA_merged_data, "fent_scRNAseq.rds")
+saveRDS(top, "topTable.rds")
+```
+
+
+# Pathway Enrichement Analysis (EnrichR)
+```{r}
+library(enrichR)
+websiteLive <- getOption("enrichR.live")
+if (websiteLive) {
+    listEnrichrSites()
+    setEnrichrSite("Enrichr") 
+}
+
+if (websiteLive) dbs <- listEnrichrDbs()
+
+```
+
+```{r}
+#View and select databases 
+dbs <- c("Allen_Brain_Atlas_10x_scRNA_2021", "KEGG_2019_Mouse", "RNAseq_Automatic_GEO_Signatures_Mouse_Down", "RNAseq_Automatic_GEO_Signatures_Mouse_Up")
+
+if (websiteLive) {
+    enriched <- enrichr(c("Uty", "Mt-co3", "Hbb", "Mt-co2", "Mbp", "Mt-atp6", "Kdm5d", "Eif2s3y", "Hba-a1", "Mt-co225", "Mt-atp825", "Mt-nd125", "Mt-co125", "Mt-nd325"), dbs)
+}
+```
+
+```{r}
+if (websiteLive) enriched[["RNAseq_Automatic_GEO_Signatures_Mouse_Up"]]
+```
+
+
+
