@@ -1,0 +1,32 @@
+# R related files
+.DS_Store
+.Rhistory
+.Rproj.user
+.RData
+
+# Scrna seq files
+scrnaseq.html
+scrnaseq_files
+
+#ignore original fastq data
+sample_reads/*.gz
+seqtk/
+
+# ignore Rat reference files
+ref/rat_ref
+ref/Rattus_norvegicus_mRatBN7_2/
+
+# ignore outputs
+fastqc_results/
+fastqc/scrnaseq
+**.zip
+**.html
+**.sif 
+e*.txt
+o*.txt
+cellranger/*.txt
+cellranger/GEX*
+cellranger/fentanyl/
+
+# not Ignore csvs
+#*.csv
